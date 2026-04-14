@@ -18,10 +18,10 @@ Extensive experiments demonstrate that our approach achieves highly competitive 
 
 ## Installation
 
-**Step 1.** Create a conda environment and activate it.
+**Step 1. Create a conda environment and activate it.**
 ```bash
 conda create --name dsrm_detr python=3.8 -y
-conda activate dsrm_detr  ```
+conda activate dsrm_detr
 
 **Step 2.** Install PyTorch following the official instructions. For GPU platforms:
 ```bash
@@ -46,5 +46,3 @@ python mmdetection-main/tools/train.py mmdetection-main/configs/dsrm-deformable_
 
 Acknowledgement
 This project is heavily based on MMDetection. We sincerely thank the OpenMMLab team for their outstanding contribution to the open-source computer vision community.
-
-
