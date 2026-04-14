@@ -24,24 +24,27 @@ conda create --name dsrm_detr python=3.8 -y
 conda activate dsrm_detr
 
 **Step 2.** Install PyTorch following the official instructions. For GPU platforms:
+```bash
 conda install pytorch torchvision -c pytorch
 
 **Step 3.** Clone this repository and install the required dependencies.
+```bash
 git clone [https://github.com/your_username/DSRM-DETR.git](https://github.com/your_username/DSRM-DETR.git)
 cd DSRM-DETR
 pip install -r requirements.txt
 
-# Data Preparation
+## Data Preparation
 You need to download the VisDrone2019 and CARPK datasets from their official websites manually:
 1、VisDrone Official Website
 2、CARPK Official Website
 After downloading, please organize the datasets in the data/ directory. Since MMDetection relies on the COCO format, we provide handy scripts to convert the original custom annotations to the standard COCO JSON format.
 
-# Training
+## Training
 Train on a single GPU:
+```bash
 python mmdetection-main/tools/train.py mmdetection-main/configs/dsrm-deformable_detr/dsrm-deformable-detr_r50_16xb2-50e_coco.py
 
-# Acknowledgement
+## Acknowledgement
 This project is heavily based on MMDetection. We sincerely thank the OpenMMLab team for their outstanding contribution to the open-source computer vision community.
 
 
