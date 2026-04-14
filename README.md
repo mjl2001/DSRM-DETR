@@ -1,4 +1,4 @@
-# DSRM-DETR: Dynamic Sampling and Reference Point Modulation for Enhanced Small Object Detection in UAV Imagery
+# Dynamic Sampling and Reference Point Modulation for Enhanced Small Object Detection in UAV Imagery
 📌 Important Note: This repository contains the official PyTorch implementation and guidelines for the manuscript currently submitted to The Visual Computer.
 
 Overview
