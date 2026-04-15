@@ -18,20 +18,20 @@ from .utils import inverse_sigmoid
 class DynamicMaskDeformableAttention(MultiScaleDeformableAttention):
     """Dynamic Mask Deformable Attention.
     
-    根据预测框面积动态调整采样点数量：
-    - 大目标：只使用前4个采样点
-    - 中目标：只使用前8个采样点
-    - 小目标：使用全部采样点
+    Dynamically adjust the number of sampling points based on the predicted bounding box area:
+    - Large objects: use only the first 4 sampling points
+    - Medium objects: use only the first 8 sampling points
+    - Small objects: use all sampling points
     
     Args:
-        small_thresh (float): 小目标面积阈值。默认为0.02。
-        large_thresh (float): 大目标面积阈值。默认为0.1。
+        small_thresh (float): Area threshold for small objects. Defaults to 0.003.
+        large_thresh (float): Area threshold for large objects. Defaults to 0.03.
     """
     
     def __init__(self, 
                  *args,
-                 small_thresh: float = 0.02,
-                 large_thresh: float = 0.1,
+                 small_thresh: float = 0.003,
+                 large_thresh: float = 0.03,
                  **kwargs):
         super().__init__(*args, **kwargs)
         self.small_thresh = small_thresh
@@ -40,33 +40,33 @@ class DynamicMaskDeformableAttention(MultiScaleDeformableAttention):
     def apply_dynamic_mask(self, 
                           attn_weights: Tensor, 
                           bbox_areas: Tensor) -> Tensor:
-        """应用动态mask到attention weights。
+        """Apply a dynamic mask to attention weights.
         
         Args:
-            attn_weights (Tensor): 注意力权重，形状为 (bs, num_query, heads, levels, points)
-            bbox_areas (Tensor): 预测框面积，形状为 (bs, num_query)
+            attn_weights (Tensor): Attention weights, shape (bs, num_query, heads, levels, points).
+            bbox_areas (Tensor): Predicted bounding box areas, shape (bs, num_query).
             
         Returns:
-            Tensor: Masked后的注意力权重，形状为 (bs, num_query, heads, levels, points)
+            Tensor: Masked attention weights, shape (bs, num_query, heads, levels, points).
         """
         bs, nq, heads, levels, points = attn_weights.shape
         
-        # 检查bbox_areas的值范围
+        # Check the value range of bbox_areas
         if bbox_areas.min() < 0 or bbox_areas.max() > 1:
-            # 如果超出范围，进行clip
+            # Clamp if out of range
             bbox_areas = bbox_areas.clamp(min=0.0, max=1.0)
         
-        # 向量化实现：生成mask
+        # Vectorized implementation: generate mask
         # bbox_areas: (bs, num_query) -> (bs, num_query, 1, 1, 1)
         areas = bbox_areas.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
         
-        # 创建mask (bs, num_query, heads, levels, points)
+        # Create mask (bs, num_query, heads, levels, points)
         mask = torch.ones_like(attn_weights)
         
-        # 小目标mask: area <= small_thresh, 保留全部点
+        # Small object mask: area <= small_thresh, keep all points
         small_mask = areas <= self.small_thresh
         
-        # 中目标mask: small_thresh < area <= large_thresh, 只保留前8个点
+        # Medium object mask: small_thresh < area <= large_thresh, keep only the first 8 points
         mid_mask = (areas > self.small_thresh) & (areas <= self.large_thresh)
         if points > 8:
             mid_point_mask = torch.cat([
@@ -74,9 +74,9 @@ class DynamicMaskDeformableAttention(MultiScaleDeformableAttention):
                 torch.zeros_like(mask[..., 8:])
             ], dim=-1)
             mask = torch.where(mid_mask.expand_as(mask), mid_point_mask, mask)
-        # 如果points <= 8，中目标保留全部点（不需要额外处理）
+        # If points <= 8, medium objects keep all points (no extra processing needed)
         
-        # 大目标mask: area > large_thresh, 只保留前4个点
+        # Large object mask: area > large_thresh, keep only the first 4 points
         large_mask = areas > self.large_thresh
         if points > 4:
             large_point_mask = torch.cat([
@@ -84,12 +84,12 @@ class DynamicMaskDeformableAttention(MultiScaleDeformableAttention):
                 torch.zeros_like(mask[..., 4:])
             ], dim=-1)
             mask = torch.where(large_mask.expand_as(mask), large_point_mask, mask)
-        # 如果points <= 4，大目标保留全部点（不需要额外处理）
+        # If points <= 4, large objects keep all points (no extra processing needed)
         
-        # 应用mask
+        # Apply the mask
         attn_weights = attn_weights * mask
         
-        # 重新归一化
+        # Re-normalize
         attn_weights = attn_weights / (attn_weights.sum(-1, keepdim=True) + 1e-6)
         
         return attn_weights
@@ -147,7 +147,7 @@ class DynamicMaskDeformableAttention(MultiScaleDeformableAttention):
         attention_weights = attention_weights.view(
             bs, num_query, self.num_heads, self.num_levels, self.num_points)
         
-        # ===== 应用动态mask =====
+        # ===== Apply dynamic mask =====
         if bbox_areas is not None:
             attention_weights = self.apply_dynamic_mask(attention_weights, bbox_areas)
         
@@ -166,7 +166,7 @@ class DynamicMaskDeformableAttention(MultiScaleDeformableAttention):
                 f'Last dim of reference_points must be 2 or 4, '
                 f'but got {reference_points.shape[-1]}')
         
-        # 使用PyTorch版本的deformable attention
+        # Use the PyTorch version of deformable attention
         output = multi_scale_deformable_attn_pytorch(
             value, spatial_shapes, sampling_locations, attention_weights)
         
@@ -179,13 +179,14 @@ class DynamicMaskDeformableAttention(MultiScaleDeformableAttention):
 class TPRCM(nn.Module):
     """Target-aware Reference Point Confidence Modulation Module.
     
-    该模块用于在可变形交叉注意力计算之前对参考点的有效性进行评估与调制，
-    从而缓解复杂背景下无效采样点对小目标特征建模带来的干扰。
+    This module evaluates and modulates the validity of reference points prior to the 
+    deformable cross-attention computation, thereby alleviating the interference caused 
+    by invalid sampling points in complex backgrounds during small object feature modeling.
     
     Args:
-        embed_dims (int): 特征维度。默认为256。
-        hidden_dims (int): MLP隐藏层维度。默认为64。
-        num_levels (int): 多尺度特征层数。默认为4。
+        embed_dims (int): Feature dimensions. Defaults to 256.
+        hidden_dims (int): MLP hidden layer dimensions. Defaults to 64.
+        num_levels (int): Number of multi-scale feature levels. Defaults to 4.
     """
     
     def __init__(self, 
@@ -197,9 +198,9 @@ class TPRCM(nn.Module):
         self.hidden_dims = hidden_dims
         self.num_levels = num_levels
         
-        # 轻量级MLP用于计算可信度权重
-        # 输入: 局部特征 + 查询特征 (embed_dims * 2)
-        # 输出: 可信度权重 (1)
+        # Lightweight MLP for computing confidence weights
+        # Input: Local features + query features (embed_dims * 2)
+        # Output: Confidence weight (1)
         self.confidence_mlp = nn.Sequential(
             nn.Linear(embed_dims * 2, hidden_dims),
             nn.ReLU(inplace=True),
@@ -212,7 +213,7 @@ class TPRCM(nn.Module):
         self._init_weights()
     
     def _init_weights(self):
-        """初始化权重"""
+        """Initialize weights"""
         for m in self.confidence_mlp:
             if isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
@@ -223,28 +224,28 @@ class TPRCM(nn.Module):
                               reference_points: Tensor,
                               spatial_shapes: Tensor,
                               level_start_index: Tensor) -> Tensor:
-        """在多尺度特征图上采样参考点处的局部特征。
+        """Sample local features at reference points across multi-scale feature maps.
         
         Args:
-            value (Tensor): 编码器输出的多尺度特征，形状为 (bs, num_value, embed_dims)
-            reference_points (Tensor): 参考点坐标，形状为 (bs, num_queries, num_levels, 2)
-                或 (bs, num_queries, num_levels, 4)，只使用前两维 (cx, cy)
-            spatial_shapes (Tensor): 各层特征图的空间尺寸，形状为 (num_levels, 2)
-            level_start_index (Tensor): 各层特征的起始索引，形状为 (num_levels,)
+            value (Tensor): Multi-scale features from the encoder output, shape (bs, num_value, embed_dims).
+            reference_points (Tensor): Reference point coordinates, shape (bs, num_queries, num_levels, 2)
+                or (bs, num_queries, num_levels, 4), using only the first two dimensions (cx, cy).
+            spatial_shapes (Tensor): Spatial dimensions of each feature level, shape (num_levels, 2).
+            level_start_index (Tensor): Start index of each feature level, shape (num_levels,).
             
         Returns:
-            Tensor: 采样得到的局部特征，形状为 (bs, num_queries, embed_dims)
+            Tensor: Sampled local features, shape (bs, num_queries, embed_dims).
         """
         bs, num_queries, num_levels, ref_dim = reference_points.shape
         
-        # 只使用参考点的前两维 (cx, cy)
+        # Use only the first two dimensions (cx, cy) of reference points
         if ref_dim == 4:
             reference_points = reference_points[..., :2]
         
         sampled_features_list = []
         
         for lvl in range(num_levels):
-            # 将 Tensor 转换为 int 用于 view 操作
+            # Convert Tensor to int for view operations
             H = int(spatial_shapes[lvl, 0].item())
             W = int(spatial_shapes[lvl, 1].item())
             start_idx = int(level_start_index[lvl].item())
@@ -253,20 +254,20 @@ class TPRCM(nn.Module):
             else:
                 end_idx = value.shape[1]
             
-            # 获取当前层的特征 (bs, H*W, embed_dims)
+            # Get features of the current level (bs, H*W, embed_dims)
             lvl_value = value[:, start_idx:end_idx, :]
-            # 重塑为 (bs, embed_dims, H, W)
+            # Reshape to (bs, embed_dims, H, W)
             lvl_value = lvl_value.view(bs, H, W, -1).permute(0, 3, 1, 2).contiguous()
             
-            # 获取当前层的参考点 (bs, num_queries, 2)
+            # Get reference points of the current level (bs, num_queries, 2)
             lvl_ref_points = reference_points[:, :, lvl, :]
             
-            # 将参考点坐标从 [0, 1] 转换为 [-1, 1] 用于 grid_sample
-            # 注意: grid_sample 期望的坐标顺序是 (x, y)，参考点已经是 (x, y) 格式
+            # Convert reference point coordinates from [0, 1] to [-1, 1] for grid_sample
+            # Note: grid_sample expects (x, y) order, and reference points are already in (x, y) format
             grid = lvl_ref_points * 2 - 1  # (bs, num_queries, 2)
             grid = grid.unsqueeze(2)  # (bs, num_queries, 1, 2)
             
-            # 双线性插值采样 (bs, embed_dims, num_queries, 1)
+            # Bilinear interpolation sampling (bs, embed_dims, num_queries, 1)
             sampled = F.grid_sample(
                 lvl_value, 
                 grid, 
@@ -278,7 +279,7 @@ class TPRCM(nn.Module):
             sampled = sampled.squeeze(-1).permute(0, 2, 1)
             sampled_features_list.append(sampled)
         
-        # 对多尺度特征取平均 (bs, num_queries, embed_dims)
+        # Average across multi-scale features (bs, num_queries, embed_dims)
         sampled_features = torch.stack(sampled_features_list, dim=0).mean(dim=0)
         
         return sampled_features
@@ -289,28 +290,28 @@ class TPRCM(nn.Module):
                 reference_points: Tensor,
                 spatial_shapes: Tensor,
                 level_start_index: Tensor) -> Tensor:
-        """计算参考点的可信度权重。
+        """Compute the confidence weights of reference points.
         
         Args:
-            query (Tensor): 对象查询特征，形状为 (bs, num_queries, embed_dims)
-            value (Tensor): 编码器输出的多尺度特征，形状为 (bs, num_value, embed_dims)
-            reference_points (Tensor): 参考点坐标，形状为 (bs, num_queries, num_levels, 2)
-                或 (bs, num_queries, num_levels, 4)，只使用前两维 (cx, cy)
-            spatial_shapes (Tensor): 各层特征图的空间尺寸，形状为 (num_levels, 2)
-            level_start_index (Tensor): 各层特征的起始索引，形状为 (num_levels,)
+            query (Tensor): Object query features, shape (bs, num_queries, embed_dims).
+            value (Tensor): Multi-scale features from the encoder output, shape (bs, num_value, embed_dims).
+            reference_points (Tensor): Reference point coordinates, shape (bs, num_queries, num_levels, 2)
+                or (bs, num_queries, num_levels, 4), using only the first two dimensions (cx, cy).
+            spatial_shapes (Tensor): Spatial dimensions of each feature level, shape (num_levels, 2).
+            level_start_index (Tensor): Start index of each feature level, shape (num_levels,).
             
         Returns:
-            Tensor: 可信度权重，形状为 (bs, num_queries, 1)
+            Tensor: Confidence weights, shape (bs, num_queries, 1).
         """
-        # 采样参考点处的局部特征 (bs, num_queries, embed_dims)
+        # Sample local features at reference points (bs, num_queries, embed_dims)
         local_features = self.sample_local_features(
             value, reference_points, spatial_shapes, level_start_index
         )
         
-        # 将局部特征与查询特征在通道维度上融合 (bs, num_queries, embed_dims * 2)
+        # Fuse local features and query features along the channel dimension (bs, num_queries, embed_dims * 2)
         fused_features = torch.cat([local_features, query], dim=-1)
         
-        # 通过MLP计算可信度权重 (bs, num_queries, 1)
+        # Compute confidence weights via MLP (bs, num_queries, 1)
         confidence_weights = self.confidence_mlp(fused_features)
         
         return confidence_weights
@@ -425,10 +426,10 @@ class DeformableDetrTransformerDecoder(DetrTransformerDecoder):
     """Transformer Decoder of Deformable DETR with TPRCM support.
     
     Args:
-        use_tprcm (bool): 是否使用TPRCM模块。默认为False。
-        tprcm_cfg (dict): TPRCM模块的配置。默认为None。
-        tprcm_start_layer (int): TPRCM开始启用的层索引（从0开始）。默认为1（即第二层）。
-        use_dynamic_mask (bool): 是否使用动态mask。默认为False。
+        use_tprcm (bool): Whether to use the TPRCM module. Defaults to False.
+        tprcm_cfg (dict): Configuration for the TPRCM module. Defaults to None.
+        tprcm_start_layer (int): The layer index to start enabling TPRCM (0-indexed). Defaults to 1 (i.e., the second layer).
+        use_dynamic_mask (bool): Whether to use dynamic mask. Defaults to False.
     """
 
     def __init__(self,
@@ -443,7 +444,7 @@ class DeformableDetrTransformerDecoder(DetrTransformerDecoder):
         self.tprcm_start_layer = tprcm_start_layer
         self.use_dynamic_mask = use_dynamic_mask
         
-        # 警告：动态mask需要with_box_refine=True
+        # Warning: Dynamic mask requires with_box_refine=True
         if self.use_dynamic_mask:
             import warnings
             warnings.warn(
@@ -457,9 +458,9 @@ class DeformableDetrTransformerDecoder(DetrTransformerDecoder):
 
     def _init_layers(self) -> None:
         """Initialize decoder layers and TPRCM module."""
-        # 如果使用动态mask，需要在layer_cfg中添加标记
+        # If using dynamic mask, add a flag to layer_cfg
         import copy
-        layer_cfg = copy.deepcopy(self.layer_cfg)  # 使用深拷贝避免修改原配置
+        layer_cfg = copy.deepcopy(self.layer_cfg)  # Use deepcopy to avoid modifying the original config
         if self.use_dynamic_mask:
             if 'cross_attn_cfg' not in layer_cfg:
                 layer_cfg['cross_attn_cfg'] = {}
@@ -474,7 +475,7 @@ class DeformableDetrTransformerDecoder(DetrTransformerDecoder):
             raise ValueError('There is not post_norm in '
                              f'{self._get_name()}')
         
-        # 初始化TPRCM模块（所有解码器层共享参数）
+        # Initialize the TPRCM module (parameters shared across all decoder layers)
         if self.use_tprcm:
             tprcm_cfg = dict(embed_dims=self.embed_dims)
             tprcm_cfg.update(self.tprcm_cfg)
@@ -547,7 +548,7 @@ class DeformableDetrTransformerDecoder(DetrTransformerDecoder):
                     reference_points[:, :, None] * \
                     valid_ratios[:, None]
             
-            # 计算TPRCM可信度权重（从第二层开始启用）
+            # Compute TPRCM confidence weights (enabled from the second layer)
             confidence_weights = None
             if self.use_tprcm and layer_id >= self.tprcm_start_layer:
                 confidence_weights = self.tprcm(
@@ -558,24 +559,24 @@ class DeformableDetrTransformerDecoder(DetrTransformerDecoder):
                     level_start_index=level_start_index
                 )
             
-            # 计算bbox_areas用于动态mask
+            # Compute bbox_areas for dynamic mask
             bbox_areas = None
             if self.use_dynamic_mask and reg_branches is not None:
-                # 通过回归分支预测bbox
+                # Predict bboxes via regression branches
                 tmp_bbox = reg_branches[layer_id](output)
                 if reference_points.shape[-1] == 4:
-                    # 如果reference_points是4维的，直接使用预测的bbox
+                    # If reference_points is 4D, use predicted bboxes directly
                     bbox_pred = tmp_bbox + inverse_sigmoid(reference_points)
                     bbox_pred = bbox_pred.sigmoid()
                 else:
-                    # 如果reference_points是2维的，tmp_bbox应该是4维(cx, cy, w, h)
-                    # 创建副本避免修改原tensor
+                    # If reference_points is 2D, tmp_bbox should be 4D (cx, cy, w, h)
+                    # Create a clone to avoid modifying the original tensor
                     bbox_pred = tmp_bbox.clone()
                     bbox_pred[..., :2] = tmp_bbox[..., :2] + inverse_sigmoid(reference_points)
                     bbox_pred = bbox_pred.sigmoid()
                 
-                # 计算面积: w * h
-                # 确保w和h都是正值，并限制在合理范围内
+                # Compute area: w * h
+                # Ensure w and h are positive and clamped to a reasonable range
                 w = bbox_pred[..., 2].clamp(min=1e-6, max=1.0)
                 h = bbox_pred[..., 3].clamp(min=1e-6, max=1.0)
                 bbox_areas = w * h
@@ -640,15 +641,15 @@ class DeformableDetrTransformerDecoderLayer(DetrTransformerDecoderLayer):
         """Initialize self_attn, cross-attn, ffn, and norms."""
         self.self_attn = MultiheadAttention(**self.self_attn_cfg)
         
-        # 检查是否使用动态mask
+        # Check if dynamic mask is used
         cross_attn_cfg = self.cross_attn_cfg.copy()
         use_dynamic_mask = cross_attn_cfg.pop('use_dynamic_mask', False)
         
         if use_dynamic_mask:
-            # 使用动态mask版本的deformable attention
+            # Use the dynamic mask version of deformable attention
             self.cross_attn = DynamicMaskDeformableAttention(**cross_attn_cfg)
         else:
-            # 使用标准的deformable attention
+            # Use standard deformable attention
             self.cross_attn = MultiScaleDeformableAttention(**cross_attn_cfg)
         
         self.embed_dims = self.self_attn.embed_dims
@@ -712,9 +713,9 @@ class DeformableDetrTransformerDecoderLayer(DetrTransformerDecoderLayer):
         query = self.norms[0](query)
         
         # Cross attention (Deformable Attention)
-        # 根据attention类型决定是否传递bbox_areas
+        # Determine whether to pass bbox_areas based on the attention type
         if isinstance(self.cross_attn, DynamicMaskDeformableAttention):
-            # 动态mask版本，传递bbox_areas
+            # Dynamic mask version, pass bbox_areas
             cross_attn_output = self.cross_attn(
                 query=query,
                 key=value,
@@ -727,7 +728,7 @@ class DeformableDetrTransformerDecoderLayer(DetrTransformerDecoderLayer):
                 bbox_areas=bbox_areas,
                 **kwargs)
         else:
-            # 标准版本，不传递bbox_areas
+            # Standard version, do not pass bbox_areas
             cross_attn_output = self.cross_attn(
                 query=query,
                 key=value,
@@ -739,11 +740,11 @@ class DeformableDetrTransformerDecoderLayer(DetrTransformerDecoderLayer):
                 level_start_index=level_start_index,
                 **kwargs)
         
-        # 应用TPRCM可信度权重调制
+        # Apply TPRCM confidence weight modulation
         if confidence_weights is not None:
             # confidence_weights: (bs, num_queries, 1)
             # cross_attn_output: (bs, num_queries, embed_dims)
-            # 使用可信度权重对交叉注意力输出进行调制
+            # Modulate cross attention output using confidence weights
             cross_attn_output = cross_attn_output * confidence_weights
         
         query = query + cross_attn_output
