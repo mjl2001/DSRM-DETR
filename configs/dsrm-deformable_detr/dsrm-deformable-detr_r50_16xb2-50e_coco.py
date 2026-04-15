@@ -68,8 +68,8 @@ model = dict(
                 embed_dims=256,
                 batch_first=True,
                 # 动态mask参数
-                small_thresh=0.02,  # 小目标面积阈值
-                large_thresh=0.1),  # 大目标面积阈值
+                small_thresh=0.003,  # 小目标面积阈值
+                large_thresh=0.03),  # 大目标面积阈值
             ffn_cfg=dict(
                 embed_dims=256, feedforward_channels=1024, ffn_drop=0.1)),
         post_norm_cfg=None),
