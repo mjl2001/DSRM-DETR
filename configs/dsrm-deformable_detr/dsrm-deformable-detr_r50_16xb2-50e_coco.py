@@ -49,15 +49,15 @@ model = dict(
     decoder=dict(  # DeformableDetrTransformerDecoder
         num_layers=6,
         return_intermediate=True,
-        # TPRCM配置
-        use_tprcm=True,  # 启用TRPCM模块
+        # TPRCM configuration
+        use_tprcm=True,  # Enable the TPRCM module
         tprcm_cfg=dict(
-            embed_dims=256,  # 特征维度
-            hidden_dims=64,  # MLP隐藏层维度
-            num_levels=4),   # 多尺度特征层数
-        tprcm_start_layer=1,  # 从第二层开始启用（索引从0开始）
-        # 动态Mask配置
-        use_dynamic_mask=True,  # 启用动态mask
+            embed_dims=256,  # Feature dimensions
+            hidden_dims=64,  # MLP hidden layer dimensions
+            num_levels=4),   # Number of multi-scale feature levels
+        tprcm_start_layer=1,  # Enable starting from the second layer (0-indexed)
+        # Dynamic Mask configuration
+        use_dynamic_mask=True,  # Enable dynamic mask
         layer_cfg=dict(  # DeformableDetrTransformerDecoderLayer
             self_attn_cfg=dict(  # MultiheadAttention
                 embed_dims=256,
@@ -67,9 +67,9 @@ model = dict(
             cross_attn_cfg=dict(  # MultiScaleDeformableAttention
                 embed_dims=256,
                 batch_first=True,
-                # 动态mask参数
-                small_thresh=0.003,  # 小目标面积阈值
-                large_thresh=0.03),  # 大目标面积阈值
+                # Dynamic mask parameters
+                small_thresh=0.003,  # Area threshold for small objects
+                large_thresh=0.03),  # Area threshold for large objects
             ffn_cfg=dict(
                 embed_dims=256, feedforward_channels=1024, ffn_drop=0.1)),
         post_norm_cfg=None),
