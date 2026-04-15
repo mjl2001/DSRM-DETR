@@ -20,5 +20,5 @@ visualizer = dict(
 log_processor = dict(type='LogProcessor', window_size=50, by_epoch=True)
 
 log_level = 'INFO'
-load_from = 'D:/python_project/data/deformable-detr_r50_16xb2-50e_coco_20221029_210934-6bc7d21b.pth'
+load_from = 'deformable-detr_r50_16xb2-50e_coco_20221029_210934-6bc7d21b.pth'
 resume = False
