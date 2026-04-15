@@ -37,7 +37,7 @@ pip install -r requirements.txt
 You need to download the VisDrone2019 and CARPK datasets from their official websites manually:
 1、VisDrone Official Website
 2、CARPK Official Website
-After downloading, please organize the datasets in the data/ directory. Since MMDetection relies on the COCO format, we provide handy scripts to convert the original custom annotations to the standard COCO JSON format.
+After downloading, please organize the datasets in the data/ directory. Since MMDetection relies on the COCO format, we provide handy scripts to convert the original custom annotations to the standard COCO JSON format.Pretrained Weights Download：https://a745098-8388-42bceb07.westb.seetacloud.com:8443/jupyter/files/autodl-tmp/TPRCM%2BPOINT/epoch_49.pth?_xsrf=2%7C104d7e8f%7Ccb5f503659ed7e8fc67ffeffe97ebdb0%7C1776131599
 
 # Training
 Train on a single GPU:
