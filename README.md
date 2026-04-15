@@ -5,7 +5,7 @@
 ## Overview
 This repository provides the code, models, and usage documentation for **DSRM-DETR**, an enhanced deformable DETR architecture tailored for small object detection in Unmanned Aerial Vehicle (UAV) scenarios.
 
-Detecting tiny, densely packed objects against complex aerial backgrounds remains a significant challenge. Traditional Transformer-based models often struggle with noisy sampling and inefficient feature aggregation. To address this, DSRM-DETR leverages a Swin Transformer backbone to capture robust multi-scale contextual features and introduces two core innovations seamlessly integrated into the MMDetection framework:
+Detecting tiny, densely packed objects against complex aerial backgrounds remains a significant challenge. Traditional Transformer-based models often struggle with noisy sampling and inefficient feature aggregation. To address this, DSRM-DETR leverages a Swin Transformer backbone to capture robust multi-scale contextual features and introduces two core innovations seamlessly integrated into the MMDetection framework(The proposed modules are located in mmdet/models/layers/transformer/deformable_detr_layers.py):
 * **Target-aware Reference Point Confidence Modulation (TPRCM):** Evaluates the reliability of reference points prior to feature aggregation, effectively suppressing background noise.
 * **Dynamic Mask-based Sampling (DMS):** Adaptively allocates valid sampling points according to the object scale, optimizing computational resources.
 
